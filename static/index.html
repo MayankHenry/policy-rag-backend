@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <title>Policy RAG - Beautiful Q&A</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <!-- Google Fonts & Icons -->
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -100,6 +99,11 @@
         background: rgba(255,255,255,0.05);
         border-radius: 6px;
     }
+    /* Markdown highlight styles */
+    .answer strong, .context-item strong { color: #ffe066; background: #212529; padding: 0 .2em; border-radius:4px;}
+    .answer em, .context-item em { color: #ffd6e0; }
+    .answer code, .context-item code { background:#2d3748; color:#7fd8be; padding:3px 5px; border-radius:4px; font-family:monospace; }
+    .answer ul, .context-item ul { margin:0 0 0 18px; }
     @keyframes fadeIn {
         from { opacity:0; transform: translateY(10px);}
         to { opacity:1; transform: translateY(0);}
@@ -110,7 +114,6 @@
 
 <div class="container">
     <h1><i class="fa-solid fa-book-open"></i> Policy RAG Assistant</h1>
-
     <!-- Upload Section -->
     <section>
         <h2><i class="fa-solid fa-upload"></i> Upload Document</h2>
@@ -130,20 +133,35 @@
     </section>
 </div>
 
+<!-- Marked.js CDN for Markdown rendering -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
-const API_BASE_URL = "http://127.0.0.1:8000"; // Change if backend is deployed
+const API_BASE_URL = ""; // NEW - will use same domain as frontend
+ // Change if backend is deployed
+
+// Helper: Sanitize and render Markdown, handle <br> as line break
+function renderMarkdown(text) {
+    // Replace <br> tags (from AI) with line breaks for markdown
+    text = text.replace(/<br\s*\/>/gi, '\n').replace(/<br>/gi, '\n');
+    // Render Markdown using Marked.js
+    return marked.parse(text);
+}
 
 // Upload file
 document.getElementById("uploadBtn").addEventListener("click", async () => {
     const fileInput = document.getElementById("fileInput");
     const statusEl = document.getElementById("uploadStatus");
-
+    // Reset to idle status unless real error
+    statusEl.textContent = "No file uploaded yet.";
+    statusEl.style.color = "#fff";
     if (!fileInput.files.length) {
-        alert("Please select a file.");
+        statusEl.textContent = "❗ Please select a file.";
+        statusEl.style.color = "#ffe066";
         return;
     }
     const file = fileInput.files[0];
     statusEl.textContent = "⏳ Uploading...";
+    statusEl.style.color = "#fff";
     const formData = new FormData();
     formData.append("file", file);
 
@@ -155,8 +173,10 @@ document.getElementById("uploadBtn").addEventListener("click", async () => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         statusEl.textContent = `✅ Uploaded: ${data.filename} — Chunks: ${data.total_chunks || "N/A"}`;
+        statusEl.style.color = "#90ee90";
     } catch (err) {
         statusEl.textContent = `❌ Upload failed: ${err}`;
+        statusEl.style.color = "#ffb3b3";
     }
 });
 
@@ -170,8 +190,8 @@ document.getElementById("askBtn").addEventListener("click", async () => {
         alert("Enter a question.");
         return;
     }
-    answerEl.textContent = "⏳ Fetching answer...";
-    contextEl.textContent = "";
+    answerEl.innerHTML = "⏳ Fetching answer...";
+    contextEl.innerHTML = "";
 
     try {
         const res = await fetch(`${API_BASE_URL}/qa/`, {
@@ -181,17 +201,22 @@ document.getElementById("askBtn").addEventListener("click", async () => {
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        answerEl.textContent = data.answer || "No answer.";
+
+        // Render AI answer with Markdown and <br> converted to line breaks
+        answerEl.innerHTML = data.answer ? renderMarkdown(data.answer) : "No answer.";
+
+        // Render full context from all chunks with markdown and full text
         if (data.context && data.context.length) {
             contextEl.innerHTML = "";
             data.context.forEach((c, i) => {
                 const div = document.createElement("div");
                 div.className = "context-item";
-                div.textContent = `${i+1}. (${c.filename}) ${c.text.slice(0, 300)}${c.text.length > 300 ? "..." : ""}`;
+                // markdown render for context text (full)
+                div.innerHTML = renderMarkdown(`${i+1}. (${c.filename})\n${c.text}`);
                 contextEl.appendChild(div);
             });
         } else {
-            contextEl.textContent = "No context available.";
+            contextEl.innerHTML = "No context available.";
         }
     } catch (err) {
         answerEl.textContent = `❌ Failed to get answer: ${err}`;
