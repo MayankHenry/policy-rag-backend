@@ -1,0 +1,182 @@
+=========================
+POLICY RAG BACKEND + FRONTEND
+=========================
+
+Project Overview:
+-----------------
+This is a Retrieval-Augmented Generation (RAG) system for semantic search and question answering
+on uploaded policy documents (PDF/DOCX). It uses:
+
+- **Backend:** FastAPI (Python), FAISS for vector storage, Hugging Face sentence-transformers for embeddings,
+               OpenRouter or OpenAI for LLM-powered QA.
+- **Frontend:** A single-page HTML+CSS+JS interface to upload documents, ask questions, and display answers beautifully.
+
+=========================
+SETUP COMMANDS & INSTALLATION
+=========================
+
+1. Create and activate a Python virtual environment:
+   -----------------------------------------------
+   Windows (PowerShell):
+       python -m venv venv
+       venv\Scripts\activate
+
+   macOS/Linux:
+       python3 -m venv venv
+       source venv/bin/activate
+
+2. Install Backend dependencies:
+   ------------------------------
+   pip install fastapi uvicorn[standard] python-dotenv pydantic PyMuPDF python-docx sentence-transformers faiss-cpu numpy openai requests transformers accelerate
+
+3. Create `.env` file in backend root:
+   ------------------------------------
+   Example:
+       OPENROUTER_API_KEY=your_api_key_here
+       HF_API_TOKEN=your_huggingface_token_here
+
+4. Run the backend:
+   ----------------
+   uvicorn main:app --reload
+
+5. Open the HTML frontend (frontend/index.html) in browser
+   OR serve it from backend using StaticFiles.
+
+=========================
+BACKEND FILE STRUCTURE & PURPOSE
+=========================
+
+project_root/
+│
+├── main.py
+│   - FastAPI entry point.
+│   - Loads environment variables.
+│   - Sets up CORS middleware for cross-origin requests.
+│   - Mounts routers: /documents, /search, /qa.
+│
+├── routes/
+│   ├── documents.py
+│   │   - Endpoints: upload, list, delete documents.
+│   │   - Calls ingestion_service for file processing.
+│   │
+│   ├── search.py
+│   │   - POST /search: accepts query, returns top-k relevant chunks from FAISS index.
+│   │
+│   ├── qa.py
+│       - POST /qa: accepts question, retrieves relevant chunks, sends to LLM, returns answer+context.
+│
+├── services/
+│   ├── ingestion_service.py
+│   │   - Validates file type.
+│   │   - Saves file to `data/uploaded_docs`.
+│   │   - Extracts text from PDF/DOCX.
+│   │   - Chunks text into overlapping pieces.
+│   │   - Generates embeddings with all-MiniLM-L6-v2 model.
+│   │   - Stores vectors + metadata in FAISS index.
+│   │
+│   ├── search_service.py
+│   │   - Encodes query into embedding.
+│   │   - Searches FAISS index for nearest vectors.
+│   │   - Returns metadata & similarity scores.
+│   │
+│   ├── qa_service.py
+│       - Uses `search_service` to get relevant chunks.
+│       - Constructs prompt with context.
+│       - Sends to OpenRouter API (openai/gpt-oss-20b:free) or OpenAI GPT API.
+│       - Returns generated answer + context.
+│
+├── utils/
+│   ├── file_utils.py
+│   │   - Saves uploaded files to disk.
+│   │
+│   ├── text_utils.py
+│   │   - `extract_text_from_pdf()` using PyMuPDF.
+│   │   - `extract_text_from_docx()` using python-docx.
+│   │   - `chunk_text()` for splitting text into overlapping chunks.
+│   │
+│   ├── faiss_utils.py
+│       - Save/load FAISS index from `data/vector_store`.
+│       - Store metadata in parallel to embeddings.
+│
+├── data/
+│   ├── uploaded_docs/  (saved uploaded files)
+│   └── vector_store/   (FAISS index + metadata.npy)
+│
+├── sample_docs/
+│   - Sample PDF/DOCX files for testing.
+
+=========================
+FRONTEND FILE (BEAUTIFUL UI) OVERVIEW
+=========================
+
+- Single file: `index.html`
+- Technologies: HTML5, CSS3, Vanilla JS
+- Sections:
+  1. **Upload Document**:
+     - File input (accepts PDF, DOCX)
+     - "Upload & Process" button → POST to `/documents/upload`
+
+  2. **Ask a Question**:
+     - Textarea for natural language question
+     - "Ask" button → POST to `/qa/`
+     - Displays model's answer and retrieved context in styled boxes
+
+- Design Features:
+  - Glassmorphism container
+  - Smooth fade-in animation
+  - Gradient background
+  - Rounded buttons with hover animations
+  - Font Awesome icons for better look
+
+=========================
+API ENDPOINTS & CURL EXAMPLES
+=========================
+
+1. Upload a document:
+   -------------------
+   curl -X POST "http://127.0.0.1:8000/documents/upload" \
+   -F "file=@sample_docs/sample.pdf"
+
+2. List uploaded documents:
+   -------------------------
+   curl -X GET "http://127.0.0.1:8000/documents/list"
+
+3. Delete a document:
+   -------------------
+   curl -X DELETE "http://127.0.0.1:8000/documents/delete/sample.pdf"
+
+4. Semantic search:
+   -----------------
+   curl -X POST "http://127.0.0.1:8000/search/" \
+   -H "Content-Type: application/json" \
+   -d '{"query":"Celsius to Fahrenheit formula","top_k":3}'
+
+5. Question answering:
+   --------------------
+   curl -X POST "http://127.0.0.1:8000/qa/" \
+   -H "Content-Type: application/json" \
+   -d '{"question":"What is the formula for area of a circle?","top_k":3}'
+
+=========================
+WORKFLOW EXPLANATION
+=========================
+
+1. **Document Upload:**
+   - User uploads PDF/DOCX → backend saves file → extracts text → chunks → embeds → stores in FAISS.
+
+2. **Search:**
+   - User sends a search query → backend embeds query → FAISS retrieves top-k nearest chunks → returns text+score.
+
+3. **QA:**
+   - User asks a question → backend retrieves top-k chunks from FAISS → context + question sent to LLM via OpenRouter API → returns answer + context to frontend.
+
+4. **Frontend Display:**
+   - HTML/JS handles file upload and QA prompts.
+   - Shows answers and truncated context paragraphs in a stylish interface.
+
+=========================
+DEPLOYMENT NOTES
+=========================
+- Backend: Can be hosted on services like Render, Railway, or AWS EC2.
+- Frontend: `index.html` can be served via GitHub Pages, Netlify, or directly from FastAPI.
+- For production, set specific CORS origins in `main.py`.

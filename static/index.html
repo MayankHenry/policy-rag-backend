@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Policy RAG - Beautiful Q&A</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Google Fonts & Icons -->
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<style>
+    * {
+        margin: 0; padding: 0; box-sizing: border-box;
+        font-family: 'Poppins', sans-serif;
+    }
+    body {
+        min-height: 100vh;
+        background: linear-gradient(to right, #667eea, #764ba2);
+        display: flex; justify-content: center; align-items: flex-start;
+        padding: 40px;
+        color: #fff;
+    }
+    .container {
+        background: rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(12px);
+        border-radius: 16px;
+        padding: 30px;
+        width: 100%;
+        max-width: 800px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+        animation: fadeIn 0.8s ease-in-out;
+    }
+    h1 {
+        text-align: center;
+        font-weight: 600;
+        margin-bottom: 25px;
+        font-size: 2rem;
+    }
+    section {
+        margin-bottom: 35px;
+    }
+    label {
+        font-weight: 500;
+        display: block;
+        margin-bottom: 10px;
+    }
+    input[type="file"], textarea {
+        width: 100%;
+        padding: 12px;
+        border-radius: 8px;
+        border: none;
+        outline: none;
+        margin-bottom: 10px;
+        font-size: 1rem;
+        background: rgba(255,255,255,0.15);
+        color: #fff;
+    }
+    input::file-selector-button {
+        border: none;
+        padding: 8px 16px;
+        background: #4ade80;
+        color: #fff;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+    }
+    textarea {
+        resize: vertical;
+        min-height: 80px;
+    }
+    button {
+        padding: 10px 20px;
+        background: linear-gradient(45deg, #4ade80, #16a34a);
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        color: #fff;
+        font-weight: 600;
+        font-size: 1rem;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 18px rgba(0,0,0,0.25);
+    }
+    .status, .answer, .context {
+        background: rgba(255,255,255,0.12);
+        border-radius: 10px;
+        padding: 12px;
+        margin-top: 10px;
+        white-space: pre-line;
+        font-size: 0.95rem;
+        line-height: 1.4rem;
+    }
+    .context-item {
+        margin-top: 8px;
+        padding: 10px;
+        border-left: 3px solid #4ade80;
+        background: rgba(255,255,255,0.05);
+        border-radius: 6px;
+    }
+    @keyframes fadeIn {
+        from { opacity:0; transform: translateY(10px);}
+        to { opacity:1; transform: translateY(0);}
+    }
+</style>
+</head>
+<body>
+
+<div class="container">
+    <h1><i class="fa-solid fa-book-open"></i> Policy RAG Assistant</h1>
+
+    <!-- Upload Section -->
+    <section>
+        <h2><i class="fa-solid fa-upload"></i> Upload Document</h2>
+        <input type="file" id="fileInput" accept=".pdf,.docx">
+        <button id="uploadBtn">Upload & Process</button>
+        <div class="status" id="uploadStatus">No file uploaded yet.</div>
+    </section>
+
+    <!-- QA Section -->
+    <section>
+        <h2><i class="fa-solid fa-question-circle"></i> Ask a Question</h2>
+        <textarea id="questionInput" placeholder="Type your question here..."></textarea>
+        <button id="askBtn">Ask</button>
+        <div class="answer" id="answerOutput">Answer will appear here...</div>
+        <h3 style="margin-top:15px;">Context:</h3>
+        <div class="context" id="contextOutput">No context loaded yet.</div>
+    </section>
+</div>
+
+<script>
+const API_BASE_URL = "http://127.0.0.1:8000"; // Change if backend is deployed
+
+// Upload file
+document.getElementById("uploadBtn").addEventListener("click", async () => {
+    const fileInput = document.getElementById("fileInput");
+    const statusEl = document.getElementById("uploadStatus");
+
+    if (!fileInput.files.length) {
+        alert("Please select a file.");
+        return;
+    }
+    const file = fileInput.files[0];
+    statusEl.textContent = "⏳ Uploading...";
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/documents/upload`, {
+            method: "POST",
+            body: formData
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        statusEl.textContent = `✅ Uploaded: ${data.filename} — Chunks: ${data.total_chunks || "N/A"}`;
+    } catch (err) {
+        statusEl.textContent = `❌ Upload failed: ${err}`;
+    }
+});
+
+// Ask question
+document.getElementById("askBtn").addEventListener("click", async () => {
+    const question = document.getElementById("questionInput").value.trim();
+    const answerEl = document.getElementById("answerOutput");
+    const contextEl = document.getElementById("contextOutput");
+
+    if (!question) {
+        alert("Enter a question.");
+        return;
+    }
+    answerEl.textContent = "⏳ Fetching answer...";
+    contextEl.textContent = "";
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/qa/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ question, top_k: 3 })
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        answerEl.textContent = data.answer || "No answer.";
+        if (data.context && data.context.length) {
+            contextEl.innerHTML = "";
+            data.context.forEach((c, i) => {
+                const div = document.createElement("div");
+                div.className = "context-item";
+                div.textContent = `${i+1}. (${c.filename}) ${c.text.slice(0, 300)}${c.text.length > 300 ? "..." : ""}`;
+                contextEl.appendChild(div);
+            });
+        } else {
+            contextEl.textContent = "No context available.";
+        }
+    } catch (err) {
+        answerEl.textContent = `❌ Failed to get answer: ${err}`;
+        contextEl.textContent = "";
+    }
+});
+</script>
+</body>
+</html>
