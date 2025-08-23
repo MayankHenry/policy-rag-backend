@@ -1,60 +1,84 @@
-from fastapi import UploadFile, HTTPException
-from utils.file_utils import save_upload_file
-from utils.text_utils import extract_text_from_pdf, extract_text_from_docx, chunk_text
-from utils.faiss_utils import load_faiss_index, save_faiss_index
-from sentence_transformers import SentenceTransformer
 import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+import fitz  # PyMuPDF
+from docx import Document
 import os
+import json
+from typing import List, Dict, Any
 
-# Load embedding model once at startup
-embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+# Global vectorizer for consistent embeddings
+vectorizer = TfidfVectorizer(max_features=384, stop_words='english')
 
-def ingest_document(file: UploadFile) -> dict:
-    """Save uploaded file, extract text, chunk, embed, store in FAISS."""
-    allowed_types = {
-        "application/pdf": "pdf",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx"
+def create_simple_embeddings(texts: List[str]) -> np.ndarray:
+    """Create TF-IDF embeddings for text chunks"""
+    if len(texts) == 0:
+        return np.array([])
+    
+    embeddings = vectorizer.fit_transform(texts)
+    return embeddings.toarray()
+
+def ingest_document(file_path: str, filename: str) -> Dict[str, Any]:
+    """Process document and create simple embeddings"""
+    
+    # Extract text based on file type
+    if filename.lower().endswith('.pdf'):
+        text_chunks = extract_pdf_text(file_path)
+    elif filename.lower().endswith('.docx'):
+        text_chunks = extract_docx_text(file_path)
+    else:
+        raise ValueError("Unsupported file format")
+    
+    if text_chunks:
+        embeddings = create_simple_embeddings(text_chunks)
+        save_to_local_storage(filename, text_chunks, embeddings)
+        
+        return {
+            "filename": filename,
+            "total_chunks": len(text_chunks),
+            "status": "success"
+        }
+    else:
+        raise ValueError("No text extracted from document")
+
+def extract_pdf_text(file_path: str) -> List[str]:
+    """Extract text from PDF"""
+    doc = fitz.open(file_path)
+    text_chunks = []
+    
+    for page_num in range(doc.page_count):
+        page = doc[page_num]
+        text = page.get_text()
+        
+        # Simple chunking by paragraphs
+        chunks = [chunk.strip() for chunk in text.split('\n\n') if chunk.strip()]
+        text_chunks.extend(chunks)
+    
+    doc.close()
+    return text_chunks
+
+def extract_docx_text(file_path: str) -> List[str]:
+    """Extract text from DOCX"""
+    doc = Document(file_path)
+    text_chunks = []
+    
+    for paragraph in doc.paragraphs:
+        if paragraph.text.strip():
+            text_chunks.append(paragraph.text.strip())
+    
+    return text_chunks
+
+def save_to_local_storage(filename: str, chunks: List[str], embeddings: np.ndarray):
+    """Save chunks and embeddings to JSON file"""
+    storage_dir = "data/vector_store"
+    os.makedirs(storage_dir, exist_ok=True)
+    
+    storage_file = os.path.join(storage_dir, f"{filename}_data.json")
+    
+    data = {
+        "filename": filename,
+        "chunks": chunks,
+        "embeddings": embeddings.tolist()
     }
     
-    if file.content_type not in allowed_types:
-        raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported.")
-    
-    # Save file locally
-    file_path = save_upload_file(file)
-    extension = allowed_types[file.content_type]
-
-    # Extract text
-    if extension == "pdf":
-        text = extract_text_from_pdf(file_path)
-    elif extension == "docx":
-        text = extract_text_from_docx(file_path)
-
-    # Chunk text
-    chunks = chunk_text(text, chunk_size=500, overlap=50)
-
-    # Generate embeddings
-    embeddings = embedding_model.encode(chunks, convert_to_numpy=True, normalize_embeddings=True)
-
-    # Load or create FAISS index
-    index, metadata = load_faiss_index(embeddings.shape[1])
-
-    # Add to index
-    index.add(embeddings)
-
-    # Prepare metadata: (doc_name, chunk_text)
-    for chunk in chunks:
-        metadata.append({
-            "filename": file.filename,
-            "text": chunk
-        })
-
-    # Save updated FAISS index
-    save_faiss_index(index, metadata)
-
-    return {
-        "filename": file.filename,
-        "path": file_path,
-        "total_chunks": len(chunks),
-        "vector_dim": embeddings.shape[1],
-        "message": f"Document processed and stored in FAISS with {len(chunks)} chunks."
-    }
+    with open(storage_file, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)

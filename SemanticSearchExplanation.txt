@@ -33,7 +33,7 @@ SETUP COMMANDS & INSTALLATION
    ------------------------------------
    Example:
        OPENROUTER_API_KEY=your_api_key_here
-       HF_API_TOKEN=your_huggingface_token_here
+       
 
 4. Run the backend:
    ----------------

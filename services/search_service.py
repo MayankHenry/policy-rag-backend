@@ -1,37 +1,55 @@
-# services/search_service.py
-
-from sentence_transformers import SentenceTransformer
-from utils.faiss_utils import load_faiss_index
+import json
+import os
 import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from typing import List, Dict, Any
 
-embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+vectorizer = None
 
-def semantic_search(query: str, top_k: int = 5):
-    """
-    Perform semantic search by embedding the query and retrieving
-    the closest chunks from the FAISS index.
-    """
-    # Embed query and normalize (since FAISS index uses normalized embeddings)
-    query_embedding = embedding_model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
+def semantic_search(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    """Search for similar chunks using TF-IDF and cosine similarity"""
+    global vectorizer
+    storage_dir = "data/vector_store"
+    
+    if not os.path.exists(storage_dir):
+        return []
 
-    # Load index and metadata
-    index, metadata = load_faiss_index(dimension=query_embedding.shape[1])
+    all_results = []
 
-    if index.ntotal == 0:
-        return []  # No indexed documents
+    # Load all stored document data
+    for filename in os.listdir(storage_dir):
+        if filename.endswith('_data.json'):
+            file_path = os.path.join(storage_dir, filename)
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
 
-    # Search FAISS index (returns distances and indices)
-    distances, indices = index.search(query_embedding, top_k)
+            chunks = data['chunks']
+            stored_embeddings = np.array(data['embeddings'])
 
-    results = []
-    for dist, idx in zip(distances[0], indices[0]):
-        if idx == -1:
-            continue
-        meta = metadata[idx]
-        results.append({
-            "filename": meta["filename"],
-            "text": meta["text"],
-            "score": float(dist)  # similarity score
-        })
+            if len(chunks) == 0:
+                continue
 
-    return results
+            # Create vectorizer if not exists
+            if vectorizer is None:
+                vectorizer = TfidfVectorizer(max_features=384, stop_words='english')
+                vectorizer.fit(chunks)  # Fit on document chunks
+
+            # Get query embedding
+            query_embedding = vectorizer.transform([query]).toarray()
+
+            # Calculate cosine similarities
+            similarities = cosine_similarity(query_embedding, stored_embeddings)[0]
+
+            # Add results with similarity scores
+            for i, similarity in enumerate(similarities):
+                all_results.append({
+                    'text': chunks[i],
+                    'filename': data['filename'],
+                    'similarity': float(similarity)
+                })
+
+    # Sort by similarity (highest first) and return top_k
+    all_results.sort(key=lambda x: x['similarity'], reverse=True)
+    return all_results[:top_k]
