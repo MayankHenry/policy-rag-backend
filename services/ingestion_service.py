@@ -1,24 +1,27 @@
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sentence_transformers import SentenceTransformer
 import fitz  # PyMuPDF
 from docx import Document
 import os
 import json
 from typing import List, Dict, Any
 
-# Global vectorizer for consistent embeddings
-vectorizer = TfidfVectorizer(max_features=384, stop_words='english')
+# Initialize the SentenceTransformer model
+MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+embedding_model = SentenceTransformer(MODEL_NAME)
 
-def create_simple_embeddings(texts: List[str]) -> np.ndarray:
-    """Create TF-IDF embeddings for text chunks"""
+def create_embeddings(texts: List[str]) -> np.ndarray:
+    """Create embeddings using SentenceTransformer"""
     if len(texts) == 0:
         return np.array([])
     
-    embeddings = vectorizer.fit_transform(texts)
-    return embeddings.toarray()
+    embeddings = embedding_model.encode(texts, 
+                                     convert_to_numpy=True,
+                                     normalize_embeddings=True)
+    return embeddings
 
 def ingest_document(file_path: str, filename: str) -> Dict[str, Any]:
-    """Process document and create simple embeddings"""
+    """Process document and create embeddings"""
     
     # Extract text based on file type
     if filename.lower().endswith('.pdf'):
@@ -29,7 +32,7 @@ def ingest_document(file_path: str, filename: str) -> Dict[str, Any]:
         raise ValueError("Unsupported file format")
     
     if text_chunks:
-        embeddings = create_simple_embeddings(text_chunks)
+        embeddings = create_embeddings(text_chunks)
         save_to_local_storage(filename, text_chunks, embeddings)
         
         return {
